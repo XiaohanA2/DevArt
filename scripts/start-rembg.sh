@@ -20,3 +20,4 @@ echo ""
 # 启动 rembg HTTP 服务
 rembg s --host 0.0.0.0 --port 7000 --log_level info
 
+
