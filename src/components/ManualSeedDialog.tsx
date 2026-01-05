@@ -22,7 +22,7 @@ export function ManualSeedDialog({ asset, onClose }: ManualSeedDialogProps) {
   const handleGenerate = async () => {
     // Validate seed
     const seedNum = parseInt(seed, 10)
-    if (isNaN(seedNum) || seed < 0 || seed > 2147483647) {
+    if (isNaN(seedNum) || seedNum < 0 || seedNum > 2147483647) {
       setError('Seed 必须是 0 到 2147483647 之间的整数')
       return
     }
