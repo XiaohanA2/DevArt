@@ -87,6 +87,23 @@ const defaultViewport: CanvasViewport = {
   scale: 1
 }
 
+// 清理旧的 localStorage 数据（如果存在 assets 字段）
+if (typeof window !== 'undefined') {
+  try {
+    const storedData = localStorage.getItem('devart-storage')
+    if (storedData) {
+      const parsed = JSON.parse(storedData)
+      if (parsed.state && parsed.state.assets) {
+        console.log('清理旧的 assets 数据以释放 localStorage 空间')
+        delete parsed.state.assets
+        localStorage.setItem('devart-storage', JSON.stringify(parsed))
+      }
+    }
+  } catch (e) {
+    console.warn('清理 localStorage 失败:', e)
+  }
+}
+
 export const useStore = create<DevArtState>()(
   persist(
     (set) => ({
@@ -177,14 +194,16 @@ export const useStore = create<DevArtState>()(
     }),
     {
       name: 'devart-storage',
-      // 只持久化部分状态
+      // 只持久化部分状态（不包括 assets，避免 localStorage 配额超限）
       partialize: (state) => ({
-        assets: state.assets,
+        selectedAssetIds: state.selectedAssetIds,
         messages: state.messages,
         styleContext: state.styleContext,
         canvasBackground: state.canvasBackground,
         canvasViewport: state.canvasViewport
-      })
+      }),
+      // 添加版本控制，方便未来迁移
+      version: 1
     }
   )
 )

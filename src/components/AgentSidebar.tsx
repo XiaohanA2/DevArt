@@ -3,11 +3,13 @@
 import { useState, useRef, useEffect } from 'react'
 import { useStore, ChatMessage } from '@/store/useStore'
 import { StylePanel } from './StylePanel'
+import { SubjectAutocomplete } from './SubjectAutocomplete'
 import { cn } from '@/lib/utils'
 import { StyleParams } from '@/lib/style-system'
-import { 
-  Send, 
-  Loader2, 
+import { validateInput, ValidationResult } from '@/lib/validation'
+import {
+  Send,
+  Loader2,
   Sparkles,
   Bot,
   User,
@@ -51,6 +53,8 @@ interface GenerateResponse {
 export function AgentSidebar() {
   const [input, setInput] = useState('')
   const [error, setError] = useState<string | null>(null)
+  const [validationError, setValidationError] = useState<ValidationResult | null>(null)
+  const [showAutocomplete, setShowAutocomplete] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -86,6 +90,18 @@ export function AgentSidebar() {
   // 处理发送消息
   const handleSubmit = async () => {
     if (!input.trim() || isGenerating) return
+
+    // Validate input
+    const validationResult = validateInput(input)
+    if (!validationResult.isValid) {
+      setValidationError(validationResult)
+      setError(validationResult.error || '输入无效')
+      return
+    }
+
+    // Clear validation errors
+    setValidationError(null)
+    setShowAutocomplete(false)
     
     const userInput = input.trim()
     setInput('')
@@ -409,23 +425,60 @@ export function AgentSidebar() {
             </div>
           )}
           
-          <div className="relative">
+          <div className="relative overflow-visible">
             <Textarea
               ref={textareaRef}
               value={input}
-              onChange={(e) => setInput(e.target.value)}
+              onChange={(e) => {
+                setInput(e.target.value)
+                // Show autocomplete when typing (only if style is not locked)
+                if (e.target.value.length >= 1 && !styleContext.isLocked) {
+                  setShowAutocomplete(true)
+                } else {
+                  setShowAutocomplete(false)
+                }
+                // Clear validation error when user starts typing
+                if (validationError) {
+                  setValidationError(null)
+                  setError(null)
+                }
+              }}
               onKeyDown={handleKeyDown}
-              placeholder={styleContext.isLocked 
+              onFocus={() => {
+                // Show autocomplete on focus (only if style is not locked)
+                if (input.length >= 1 && !styleContext.isLocked) {
+                  setShowAutocomplete(true)
+                }
+              }}
+              onBlur={() => {
+                // Delay hiding autocomplete to allow clicks
+                setTimeout(() => setShowAutocomplete(false), 200)
+              }}
+              placeholder={styleContext.isLocked
                 ? "继续输入主题，将使用相同风格生成..."
                 : "描述你需要的 UI 素材..."
               }
               className={cn(
                 "min-h-[80px] max-h-[160px] pr-12 resize-none",
                 "bg-white/5 border-white/10 text-white placeholder:text-white/30",
-                "focus:border-violet-500/50 focus:ring-violet-500/20"
+                "focus:border-violet-500/50 focus:ring-violet-500/20",
+                validationError && "border-red-500/50 focus:border-red-500/50"
               )}
               disabled={isGenerating}
             />
+
+            {/* Autocomplete */}
+            <SubjectAutocomplete
+              input={input}
+              isVisible={showAutocomplete}
+              onSelect={(suggestion) => {
+                setInput(suggestion)
+                setShowAutocomplete(false)
+                // Focus back on textarea
+                textareaRef.current?.focus()
+              }}
+            />
+
             <Button
               size="icon"
               className={cn(
@@ -443,6 +496,31 @@ export function AgentSidebar() {
               )}
             </Button>
           </div>
+
+          {/* Validation Error */}
+          {validationError && (
+            <div className="mt-2 px-3 py-2 bg-red-500/10 border border-red-500/20 rounded-lg">
+              <p className="text-xs text-red-300">{validationError.error}</p>
+              {validationError.suggestions && validationError.suggestions.length > 0 && (
+                <div className="mt-2 space-y-1">
+                  <p className="text-[10px] text-red-400/80">试试这些：</p>
+                  {validationError.suggestions.map((suggestion, i) => (
+                    <button
+                      key={i}
+                      onClick={() => {
+                        setInput(suggestion)
+                        setValidationError(null)
+                        setError(null)
+                      }}
+                      className="block w-full text-left px-2 py-1 text-xs text-red-300 hover:bg-red-500/10 rounded transition-colors"
+                    >
+                      {suggestion}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
           <p className="mt-2 text-[10px] text-white/30 text-center">
             按 Enter 发送，Shift + Enter 换行
           </p>

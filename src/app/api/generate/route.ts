@@ -1,10 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { correctIconColor, extractTargetColor } from '@/lib/color-correction'
 
 /**
  * DevArt Image Generation API - Qwen/Qwen-Image 版本
- * 
+ *
  * 直接调用阿里开源的 Qwen/Qwen-Image 模型
  * 通过硅基流动 (SiliconFlow) 接入
+ *
+ * 新增：自动颜色校正功能
  */
 
 interface GenerateRequest {
@@ -28,7 +31,16 @@ const DEFAULT_NEGATIVE_PROMPT = [
   '文字', '单词', '字母', '数字', '水印', '签名', '标签', '标题',
   '书写', '字体', '排版', '模糊', '低质', '畸变', '变形',
   '丑陋', '重复', '裁切', '超出框外', '额外肢体', '解剖错误',
-  '写实', '照片式', '照片', '3D渲染'
+  '写实', '照片式', '照片',
+  // 禁止任何填充背景（白色、彩色、渐变）
+  'white filled background', 'solid white background', '白色填充背景',
+  'colored background', 'colorful background', '彩色背景',
+  'pink background', 'pink overlay', '粉色背景', '粉色浮层',
+  'gradient background', 'gradient overlay', '渐变背景', '渐变浮层',
+  'background container', 'background shape', 'circle background',
+  'square background', 'rounded background', '背景容器', '背景形状',
+  'background layer', 'overlay', 'floating layer', '背景层', '浮层',
+  'solid background fill', '实心背景填充', '背景填充'
 ].join(', ')
 
 export async function POST(request: NextRequest) {
@@ -103,22 +115,101 @@ export async function POST(request: NextRequest) {
     }
     
     const data = await response.json()
-    
+
     // SiliconFlow 返回格式: { images: [{ url: "..." }] }
     const imageUrl = data.images?.[0]?.url
-    
+
     if (!imageUrl) {
       console.error('[QWEN] 响应数据:', data)
       throw new Error('图像生成失败，未返回 URL')
     }
-    
+
+    // 下载图片并转换为 base64 格式以实现永久存储
+    console.log('[QWEN] 下载图片并转换为 base64...')
+    const imageResponse = await fetch(imageUrl)
+    if (!imageResponse.ok) {
+      throw new Error('图片下载失败')
+    }
+
+    const arrayBuffer = await imageResponse.arrayBuffer()
+    let imageBuffer = Buffer.from(arrayBuffer)
+
+    // 🧹 背景移除（在颜色校正之前）
+    // 注释：节省 Remove.bg API 额度，颜色校正有白色像素过滤，可以不依赖前置背景移除
+    // const REMOVEBG_API_KEY = process.env.REMOVEBG_API_KEY
+    // if (REMOVEBG_API_KEY) {
+    //   console.log('[QWEN] 检测到 REMOVEBG_API_KEY，开始移除背景...')
+    //
+    //   try {
+    //     const formData = new FormData()
+    //     formData.append('image_file', new Blob([arrayBuffer], { type: 'image/png' }), 'image.png')
+    //     formData.append('size', 'auto')
+    //     formData.append('format', 'png')
+    //
+    //     const removeBgStart = Date.now()
+    //     const removeBgResponse = await fetch('https://api.remove.bg/v1.0/removebg', {
+    //       method: 'POST',
+    //       headers: {
+    //         'X-Api-Key': REMOVEBG_API_KEY
+    //       },
+    //       body: formData
+    //     })
+    //
+    //     if (removeBgResponse.ok) {
+    //       const removeBgBuffer = Buffer.from(await removeBgResponse.arrayBuffer())
+    //       imageBuffer = removeBgBuffer
+    //       const removeBgTime = Date.now() - removeBgStart
+    //       console.log(`[QWEN] 背景移除完成 (${removeBgTime}ms)`)
+    //     } else if (removeBgResponse.status === 402) {
+    //       console.warn('[QWEN] Remove.bg 额度用完，跳过背景移除')
+    //     } else {
+    //       console.warn('[QWEN] 背景移除失败，继续使用原图')
+    //     }
+    //   } catch (error) {
+    //     console.error('[QWEN] 背景移除失败:', error)
+    //     // 继续使用原图
+    //   }
+    // } else {
+    //   console.log('[QWEN] 未配置 REMOVEBG_API_KEY，跳过背景移除')
+    // }
+
+    // 🎨 自动颜色校正：检测目标颜色并校正
+    const targetColor = extractTargetColor(prompt)
+    if (targetColor) {
+      console.log(`[QWEN] 检测到目标颜色 ${targetColor}，应用颜色校正...`)
+      const colorCorrectionStart = Date.now()
+
+      try {
+        const correctedBuffer = await correctIconColor(imageBuffer, {
+          targetColor,
+          tolerance: 40,  // 颜色差异小于 40 时不校正
+          preserveAlpha: true,
+          strength: 1.0  // 完全校正强度
+        })
+
+        imageBuffer = correctedBuffer
+
+        const colorCorrectionTime = Date.now() - colorCorrectionStart
+        console.log(`[QWEN] 颜色校正完成 (${colorCorrectionTime}ms)`)
+      } catch (error) {
+        console.error('[QWEN] 颜色校正失败，使用原图:', error)
+        // 校正失败时使用原图
+      }
+    } else {
+      console.log('[QWEN] 未检测到目标颜色，跳过颜色校正')
+    }
+
+    const base64Image = imageBuffer.toString('base64')
+    const base64Url = `data:image/png;base64,${base64Image}`
+
     const generationTime = Date.now() - startTime
-    
+
     console.log(`[QWEN] 生成完成 (${generationTime}ms)`)
-    console.log(`  图像 URL: ${imageUrl.substring(0, 80)}...`)
-    
+    console.log(`  原 URL: ${imageUrl.substring(0, 80)}...`)
+    console.log(`  Base64 URL 已生成`)
+
     return NextResponse.json<GenerateResponse>({
-      imageUrl,
+      imageUrl: base64Url,  // 返回 base64 格式的图片
       prompt,
       seed: useSeed,
       generationTime

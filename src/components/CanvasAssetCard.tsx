@@ -3,17 +3,17 @@
 import { useState, useRef, useCallback } from 'react'
 import { useStore, Asset } from '@/store/useStore'
 import { cn } from '@/lib/utils'
-import { 
-  extractStyleFromPrompt, 
-  styleToDescription, 
+import {
+  extractStyleFromPrompt,
+  styleToDescription,
   styleToPromptFragment,
-  generateSeed 
+  generateSeed
 } from '@/lib/style-system'
-import { 
-  Download, 
-  Trash2, 
-  Lock, 
-  RotateCcw, 
+import {
+  Download,
+  Trash2,
+  Lock,
+  RotateCcw,
   Check,
   Loader2,
   Eraser,
@@ -38,8 +38,8 @@ interface CanvasAssetCardProps {
 const CARD_SIZE = 200
 
 export function CanvasAssetCard({ asset, canvasBackground, scale }: CanvasAssetCardProps) {
-  const { 
-    selectedAssetIds, 
+  const {
+    selectedAssetIds,
     toggleAssetSelection,
     removeAsset,
     updateAsset,
@@ -47,9 +47,10 @@ export function CanvasAssetCard({ asset, canvasBackground, scale }: CanvasAssetC
     lockStyle,
     styleContext
   } = useStore()
-  
+
   const [isHovered, setIsHovered] = useState(false)
   const [isDragging, setIsDragging] = useState(false)
+  const [hasMoved, setHasMoved] = useState(false)  // 追踪是否真正拖拽移动了
   const [isRerolling, setIsRerolling] = useState(false)
   const [isRemovingBg, setIsRemovingBg] = useState(false)
   const dragStartRef = useRef({ x: 0, y: 0, assetX: 0, assetY: 0 })
@@ -64,31 +65,40 @@ export function CanvasAssetCard({ asset, canvasBackground, scale }: CanvasAssetC
   const handleDragStart = useCallback((e: React.MouseEvent) => {
     e.stopPropagation()
     setIsDragging(true)
+    setHasMoved(false)  // 重置移动标记
     dragStartRef.current = {
       x: e.clientX,
       y: e.clientY,
       assetX: position.x,
       assetY: position.y
     }
-    
+
     const handleMouseMove = (moveEvent: MouseEvent) => {
-      const deltaX = (moveEvent.clientX - dragStartRef.current.x) / scale
-      const deltaY = (moveEvent.clientY - dragStartRef.current.y) / scale
-      
+      const deltaX = moveEvent.clientX - dragStartRef.current.x
+      const deltaY = moveEvent.clientY - dragStartRef.current.y
+
+      // 当移动超过 5px 时才算真正的拖拽移动
+      if (Math.abs(deltaX) > 5 || Math.abs(deltaY) > 5) {
+        setHasMoved(true)
+      }
+
+      const scaledDeltaX = deltaX / scale
+      const scaledDeltaY = deltaY / scale
+
       updateAsset(asset.id, {
         position: {
-          x: dragStartRef.current.assetX + deltaX,
-          y: dragStartRef.current.assetY + deltaY
+          x: dragStartRef.current.assetX + scaledDeltaX,
+          y: dragStartRef.current.assetY + scaledDeltaY
         }
       })
     }
-    
+
     const handleMouseUp = () => {
       setIsDragging(false)
       document.removeEventListener('mousemove', handleMouseMove)
       document.removeEventListener('mouseup', handleMouseUp)
     }
-    
+
     document.addEventListener('mousemove', handleMouseMove)
     document.addEventListener('mouseup', handleMouseUp)
   }, [asset.id, position, scale, updateAsset])
@@ -108,7 +118,7 @@ export function CanvasAssetCard({ asset, canvasBackground, scale }: CanvasAssetC
     document.body.removeChild(a)
     window.URL.revokeObjectURL(downloadUrl)
   }
-  
+
   // 锁定风格 - 使用新的结构化风格系统
   const handleLockStyle = (e: React.MouseEvent) => {
     e.stopPropagation()
@@ -197,27 +207,27 @@ export function CanvasAssetCard({ asset, canvasBackground, scale }: CanvasAssetC
       setIsRerolling(false)
     }
   }
-  
+
   // 精确重生成 - 使用相同 seed 生成几乎相同的图（用于验证一致性）
   const handleExactRegenerate = async (e: React.MouseEvent) => {
     e.stopPropagation()
     if (isRerolling || !asset.seed) return
     setIsRerolling(true)
-    
+
     try {
       const generateRes = await fetch('/api/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
+        body: JSON.stringify({
           prompt: asset.prompt,
           seed: asset.seed  // 使用相同 seed
         })
       })
-      
+
       if (!generateRes.ok) throw new Error('重新生成失败')
-      
+
       const generateData = await generateRes.json()
-      
+
       const newAssetId = Date.now().toString()
       addAsset({
         id: newAssetId,
@@ -239,7 +249,7 @@ export function CanvasAssetCard({ asset, canvasBackground, scale }: CanvasAssetC
       setIsRerolling(false)
     }
   }
-  
+
   // 删除
   const handleDelete = (e: React.MouseEvent) => {
     e.stopPropagation()
@@ -249,7 +259,8 @@ export function CanvasAssetCard({ asset, canvasBackground, scale }: CanvasAssetC
   // 选择
   const handleSelect = (e: React.MouseEvent) => {
     e.stopPropagation()
-    if (!isDragging) {
+    // 只有在没有真正拖拽移动时才切换选择
+    if (!hasMoved) {
       toggleAssetSelection(asset.id)
     }
   }
@@ -424,24 +435,26 @@ export function CanvasAssetCard({ asset, canvasBackground, scale }: CanvasAssetC
             </TooltipTrigger>
             <TooltipContent side="top" className="text-xs">生成变体（不同seed）</TooltipContent>
           </Tooltip>
-          
-          {asset.seed && (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  className="w-7 h-7 text-white hover:bg-white/20"
-                  onClick={handleExactRegenerate}
-                  disabled={isRerolling}
-                >
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                size="icon"
+                variant="ghost"
+                className="w-7 h-7 text-white hover:bg-white/20"
+                onClick={handleExactRegenerate}
+                disabled={isRerolling || !asset.seed}
+              >
+                {isRerolling ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
                   <RotateCcw className="w-3.5 h-3.5" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="top" className="text-xs">精确重生成（相同seed）</TooltipContent>
-            </Tooltip>
-          )}
-          
+                )}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="top" className="text-xs">精确重生成（相同seed）</TooltipContent>
+          </Tooltip>
+
           <Tooltip>
             <TooltipTrigger asChild>
               <Button

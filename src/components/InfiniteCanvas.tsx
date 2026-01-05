@@ -131,9 +131,23 @@ export function InfiniteCanvas() {
   }
   
   // 批量删除选中
-  const handleBatchDelete = () => {
-    selectedAssetIds.forEach(id => removeAsset(id))
-  }
+  const handleBatchDelete = useCallback(() => {
+    // 复制一份选中ID数组，避免迭代过程中修改原数组
+    const idsToDelete = [...selectedAssetIds]
+
+    console.log(`[批量删除] 删除 ${idsToDelete.length} 个资产:`, idsToDelete)
+
+    // 批量删除所有选中的资产
+    idsToDelete.forEach(id => {
+      console.log(`[批量删除] 删除资产: ${id}`)
+      removeAsset(id)
+    })
+
+    // 确保清空选择状态
+    clearSelection()
+
+    console.log(`[批量删除] 完成，剩余资产: ${assets.length - idsToDelete.length}`)
+  }, [selectedAssetIds, removeAsset, clearSelection, assets.length])
   
   // 批量去除背景
   const handleBatchRemoveBg = async () => {
@@ -456,5 +470,7 @@ export function InfiniteCanvas() {
     </TooltipProvider>
   )
 }
+
+
 
 

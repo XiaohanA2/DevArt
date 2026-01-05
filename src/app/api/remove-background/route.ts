@@ -24,21 +24,57 @@ export async function POST(request: NextRequest) {
       })
     }
     
-    console.log('Removing background from:', imageUrl)
-    
-    // 调用 Remove.bg API
-    const formData = new FormData()
-    formData.append('image_url', imageUrl)
-    formData.append('size', 'auto')
-    formData.append('format', 'png')
-    
-    const response = await fetch('https://api.remove.bg/v1.0/removebg', {
-      method: 'POST',
-      headers: {
-        'X-Api-Key': REMOVEBG_API_KEY
-      },
-      body: formData
-    })
+    console.log('Removing background from:', imageUrl.substring(0, 80) + '...')
+
+    // 检查是否为 base64 data URL
+    const isDataUrl = imageUrl.startsWith('data:')
+
+    let response: Response
+
+    if (isDataUrl) {
+      // 处理 base64 data URL - 解码并作为文件上传
+      console.log('Detected base64 image, uploading as file...')
+
+      // 提取 base64 数据
+      const matches = imageUrl.match(/^data:image\/(\w+);base64,(.+)$/)
+      if (!matches) {
+        throw new Error('无效的 base64 图片格式')
+      }
+
+      const mimeType = matches[1]
+      const base64Data = matches[2]
+      const buffer = Buffer.from(base64Data, 'base64')
+
+      // 作为文件上传
+      const formData = new FormData()
+      formData.append('image_file', new Blob([buffer], { type: `image/${mimeType}` }), 'image.png')
+      formData.append('size', 'auto')
+      formData.append('format', 'png')
+
+      response = await fetch('https://api.remove.bg/v1.0/removebg', {
+        method: 'POST',
+        headers: {
+          'X-Api-Key': REMOVEBG_API_KEY
+        },
+        body: formData
+      })
+    } else {
+      // 处理普通 URL - 使用 image_url 参数
+      console.log('Using image URL directly...')
+
+      const formData = new FormData()
+      formData.append('image_url', imageUrl)
+      formData.append('size', 'auto')
+      formData.append('format', 'png')
+
+      response = await fetch('https://api.remove.bg/v1.0/removebg', {
+        method: 'POST',
+        headers: {
+          'X-Api-Key': REMOVEBG_API_KEY
+        },
+        body: formData
+      })
+    }
     
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}))

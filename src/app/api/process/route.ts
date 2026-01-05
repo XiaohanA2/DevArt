@@ -12,6 +12,7 @@ import {
   PromptItem,
   SUBJECT_PRESETS,
 } from '@/lib/style-system'
+import { validateInput, isNonIconRequest } from '@/lib/validation'
 
 /**
  * DevArt Unified Processing API - Qwen 专用版
@@ -28,6 +29,21 @@ const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY || ''
 
 // 精简的 System Prompt - 只做参数提取，不生成最终 prompt
 const SYSTEM_PROMPT = `你是 DevArt 的意图分析器。分析用户输入，提取结构化的生成参数。
+
+## 产品边界声明
+DevArt 专注于生成 UI 图标（App 图标、导航栏图标、功能图标等）。
+以下需求应该被识别为非图标需求并友好拒绝：
+
+- 插画需求："生成一张日落海滩的插画"、"帮我画一个可爱的小女孩"、"画一只猫"、"生成风景画"
+- 背景图需求："生成一个深色背景"、"做一个渐变背景"、"创建背景图"
+- 照片写实："生成一张人物照片"、"AI 头像"、"真人照片"
+- LOGO 设计（复杂品牌）："设计一个咖啡店的完整 LOGO"、"创建品牌标识系统"
+- 艺术创作："抽象风格的油画"、"水彩风景画"、"艺术创作"
+
+如果用户输入上述类型的需求，应该：
+1. 设置 is_visual: false
+2. 在 chat_response 中友好说明 DevArt 的产品定位
+3. 提供图标生成的引导示例
 
 ## 任务
 1. 判断是否为图像生成请求
@@ -82,6 +98,9 @@ const SYSTEM_PROMPT = `你是 DevArt 的意图分析器。分析用户输入，�
 输入: "帮我画一个设置图标，圆润可爱的3D风格，橙色"
 输出: {"is_visual":true,"subjects":["设置"],"color":"橙色","style":"3D可爱","stroke_width":0,"chat_response":""}
 
+输入: "生成一张日落海滩的插画"
+输出: {"is_visual":false,"subjects":[],"color":"","style":"","stroke_width":0,"chat_response":"DevArt 专注于生成 UI 图标，不支持插画生成。试试生成一些 UI 图标，例如：「生成蓝色购物车图标」或「画一个设置图标」"}
+
 输入: "你好"
 输出: {"is_visual":false,"subjects":[],"color":"","style":"","stroke_width":0,"chat_response":"你好！我是 DevArt，你的 AI 美术伙伴。我可以帮你生成风格统一的 UI 图标。试试说「生成一组电商图标：首页、购物车、订单」"}`
 
@@ -103,9 +122,29 @@ interface LLMResponse {
 export async function POST(request: NextRequest) {
   try {
     const { userInput, lockedStyle, baseSeed }: RequestBody = await request.json()
-    
+
     if (!userInput) {
       return NextResponse.json({ error: '请输入描述' }, { status: 400 })
+    }
+
+    // ========== Server-side validation ==========
+    const validationResult = validateInput(userInput)
+    if (!validationResult.isValid) {
+      return NextResponse.json({
+        isVisual: false,
+        chatResponse: validationResult.error || '输入无效，请提供更具体的描述',
+        prompts: [],
+        error: validationResult.error
+      }, { status: 400 })
+    }
+
+    // Check for non-icon requests
+    if (isNonIconRequest(userInput)) {
+      return NextResponse.json({
+        isVisual: false,
+        chatResponse: `DevArt 专注于生成 UI 图标，不支持${userInput.includes('插画') ? '插画' : userInput.includes('背景') ? '背景图' : '此类'}生成。\n\n试试生成一些 UI 图标，例如：「生成蓝色购物车图标」或「画一个设置图标」`,
+        prompts: []
+      })
     }
     
     // ========== Step 1: LLM 意图识别 ==========
@@ -177,22 +216,38 @@ export async function POST(request: NextRequest) {
     
     // ========== Step 4: 解析主题并构建 Prompts ==========
     const subjects: SubjectItem[] = llmResult.subjects.map(s => parseSubject(s))
-    
+
     // 生成基础种子（确保批量生成的一致性）
+    // 风格锁定时使用 baseSeed，否则生成新的
     const basePromptSeed = baseSeed || generateSeed(userInput + JSON.stringify(styleParams))
-    
+
+    console.log('🔍 Seed Debug:', {
+      userInput,
+      lockedStyle: !!lockedStyle,
+      baseSeed,
+      basePromptSeed,
+      subjectsCount: subjects.length
+    })
+
     // 构建每个主题的 prompt
     const prompts: PromptItem[] = subjects.map((subject, index) => {
       const prompt = buildQwenPrompt(subject, styleParams)
-      // 每个主题使用不同但可预测的 seed
-      const seed = generateSeed(subject.english, basePromptSeed + index)
-      
+      // 使用主题内容作为 seed 的一部分，确保：
+      // 1. 相同主题得到相同 seed（可复现性）
+      // 2. 不同主题得到不同 seed（更好的适应性）
+      const seed = generateSeed(subject.original, basePromptSeed)
+
+      console.log(`  - Subject ${index}: ${subject.original}, seed: ${seed}`)
+
       return {
         subject: subject.original,
         prompt,
         seed
       }
     })
+
+    // 返回 basePromptSeed 用于后续锁定风格
+    const finalBaseSeed = basePromptSeed
     
     // ========== Step 5: 生成用户提示 ==========
     const styleDescription = styleToDescription(styleParams)
@@ -208,7 +263,7 @@ export async function POST(request: NextRequest) {
       styleParams,
       styleDescription,
       stylePromptFragment: styleToPromptFragment(styleParams),
-      baseSeed: basePromptSeed,
+      baseSeed: finalBaseSeed,  // 使用最终生成的 seed（首个主题的 seed）
       userSuggestion
     })
     
@@ -225,10 +280,50 @@ export async function POST(request: NextRequest) {
  * Fallback 解析（当 API Key 不可用时）
  */
 function fallbackParse(input: string): LLMResponse {
+  // 检查是否为非图标请求
+  const nonIconPatterns = [
+    ['插画', '画'],
+    ['背景', '图'],
+    ['照片', '写实'],
+    ['logo', '设计'],
+    ['艺术', '油画', '水彩'],
+    ['风景', '场景'],
+    ['人物', '女孩', '男孩'],
+    ['动物', '猫', '狗']
+  ]
+
+  for (const patterns of nonIconPatterns) {
+    if (patterns.every(p => input.toLowerCase().includes(p.toLowerCase()))) {
+      let requestType = ''
+      if (input.includes('插画') || input.includes('画')) {
+        requestType = '插画'
+      } else if (input.includes('背景')) {
+        requestType = '背景图'
+      } else if (input.includes('照片') || input.includes('写实')) {
+        requestType = '照片'
+      } else if (input.includes('LOGO') || input.includes('logo') || input.includes('品牌')) {
+        requestType = '完整 LOGO 设计'
+      } else if (input.includes('艺术') || input.includes('油画') || input.includes('水彩')) {
+        requestType = '艺术创作'
+      } else {
+        requestType = '此类内容'
+      }
+
+      return {
+        is_visual: false,
+        subjects: [],
+        color: '',
+        style: '',
+        stroke_width: 0,
+        chat_response: `DevArt 专注于生成 UI 图标，不支持${requestType}生成。\n\n试试生成一些 UI 图标，例如：「生成蓝色购物车图标」或「画一个设置图标」`
+      }
+    }
+  }
+
   // 检查是否为视觉请求
   const visualKeywords = ['生成', '画', '图标', '图片', '设计', 'icon', '素材', '一套', '一组']
   const isVisual = visualKeywords.some(k => input.includes(k))
-  
+
   if (!isVisual) {
     return {
       is_visual: false,
@@ -239,7 +334,7 @@ function fallbackParse(input: string): LLMResponse {
       chat_response: '你好！我是 DevArt，可以帮你生成 UI 图标。试试说「生成一个设置图标」'
     }
   }
-  
+
   // 简单提取主题
   const subjects: string[] = []
   

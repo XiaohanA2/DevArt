@@ -389,29 +389,30 @@ export function buildQwenPrompt(
     parts.push('品牌形象')
     parts.push('清晰可识别')
   } else {
-    // UI 图标：用更强硬的约束
-    // 中英混合，增加模型对约束的理解
+    // UI 图标：简化约束，避免淹没其他指令
     parts.push('icon only')
-    parts.push('icon without background')
-    parts.push('独立图标')
-    parts.push('仅图标本身，无背景形状')
-    parts.push('no background shape, no frame, no container')
-    parts.push('无任何包含框架、容器、背景形状')
+    parts.push('极简风格')
+    parts.push('无装饰')
   }
-  
+
   // ===== 主体 =====
   parts.push(`${subject.english} 图标`)
-  
-  // ===== 风格和颜色（区分线条 vs 填充） =====
+
+  // ===== 风格和颜色（提高权重：放在前面，重复强调）=====
   if (style.type === 'flat-line' || style.type === 'outline') {
-    // 线条风格：只描述线条，不提填充
-    parts.push('线条风格')
+    // 线条风格：重复强调颜色和线宽（3次强化）
+    parts.push(`${style.color.primary} 颜色`)
     parts.push(`${style.stroke.width}px 线条宽度`)
-    parts.push(`${style.color.primary} 线条颜色`)
+    parts.push(`${style.color.primary} 线条`)
+    parts.push(`${style.stroke.width}px 宽度`)
+    parts.push(`${style.color.primary} 单色`)  // 第3次强调
+    parts.push('线条风格')
+    parts.push('纯线条')
   } else if (style.type === 'flat-fill') {
-    // 填充风格：描述填充
+    // 填充风格：重复强调颜色
+    parts.push(`${style.color.primary} 颜色`)
+    parts.push(`${style.color.primary} 填充`)
     parts.push('填充风格')
-    parts.push(`${style.color.primary} 颜色填充`)
   } else if (style.type.startsWith('3d')) {
     parts.push('3D 风格')
     parts.push(`${style.color.primary} 主色`)
@@ -422,10 +423,15 @@ export function buildQwenPrompt(
   } else {
     parts.push(`${style.color.primary} 单色图标`)
   }
-  
-  // ===== 背景 =====
-  parts.push('白色背景')
-  
+
+  // ===== 背景（简化，放在后面）=====
+  // UI 图标要求透明背景，应用图标可以保留白色背景
+  if (!isAppIcon) {
+    parts.push('transparent background')
+  } else {
+    parts.push('白色背景')  // 仅应用图标允许
+  }
+
   // ===== 设计约束 =====
   if (isAppIcon) {
     // 应用图标约束较宽松，允许细节和品牌特色
