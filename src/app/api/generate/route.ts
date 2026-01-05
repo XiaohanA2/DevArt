@@ -187,7 +187,7 @@ export async function POST(request: NextRequest) {
           strength: 1.0  // 完全校正强度
         })
 
-        imageBuffer = correctedBuffer
+        imageBuffer = Buffer.from(correctedBuffer)
 
         const colorCorrectionTime = Date.now() - colorCorrectionStart
         console.log(`[QWEN] 颜色校正完成 (${colorCorrectionTime}ms)`)
