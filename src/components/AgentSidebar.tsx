@@ -277,7 +277,7 @@ export function AgentSidebar() {
               </div>
               <div>
                 <h1 className="text-sm font-semibold text-white">DevArt</h1>
-                <p className="text-[10px] text-white/40">AI 美术伙伴</p>
+                <p className="text-[10px] text-white/40">AI 图标生成</p>
               </div>
             </div>
             
@@ -314,17 +314,23 @@ export function AgentSidebar() {
                 <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-gradient-to-br from-violet-500/20 to-fuchsia-500/20 flex items-center justify-center">
                   <Bot className="w-8 h-8 text-violet-400" />
                 </div>
-              <h3 className="text-sm font-medium text-white/70 mb-2">
-                DevArt - 独立开发者的 AI 美术伙伴
+              <h3 className="text-base font-semibold text-white mb-2">
+                DevArt - 面向开发者的 AI 图标生成助手
               </h3>
-              <p className="text-xs text-white/40 max-w-[280px] mx-auto">
-                一句话描述，批量生成风格统一的 UI 素材。
+              <p className="text-sm text-white/60 max-w-[280px] mx-auto mb-1">
+                批量生成风格统一的 <span className="text-violet-400 font-medium">UI 图标</span>
               </p>
-              <p className="text-xs text-white/40 max-w-[280px] mx-auto mt-2">
-                🎨 <strong className="text-white/60">风格锁定</strong>：首次生成后自动锁定风格
-              </p>
-              <p className="text-xs text-white/40 max-w-[280px] mx-auto">
-              试试这些：
+              <div className="flex items-center justify-center gap-3 mt-3 text-xs text-white/50">
+                <span className="flex items-center gap-1">
+                  🎨 <strong className="text-white/70">风格锁定</strong>
+                </span>
+                <span>•</span>
+                <span className="flex items-center gap-1">
+                  🎯 <strong className="text-white/70">颜色校正</strong>
+                </span>
+              </div>
+              <p className="text-xs text-white/40 max-w-[280px] mx-auto mt-4">
+                试试这些：
               </p>
                 <div className="mt-4 space-y-2">
                   {[
